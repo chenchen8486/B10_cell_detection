@@ -4,6 +4,7 @@ from __future__ import absolute_import
 from __future__ import unicode_literals
 import os, cv2, time, base64, json, _thread
 import numpy as np
+import traceback
 from log import ALL_LOG_OBJ
 from flask import Flask, request, jsonify
 from algo_module import defect_detection
@@ -211,14 +212,18 @@ def parser():
         response_data = {'direction_type': direction_type, 'image_id': int(image_id),
                          'corner_rslt_dict': corner_rslt_dict, 'frontier_rslt_dict':  frontier_rslt_dict,
                          'defect_rslt_list': defect_rslt_list, 'defect_num': len(defect_rslt_list)}
-    except Exception as e:
+    # except Exception as e:
+    #     ALL_LOG_OBJ.logger.info(" !!!! HTTP SERVICE CALL FAILED !!!!")
+    #     code = 101
+    #     response_data = {}
+    except:
         ALL_LOG_OBJ.logger.info(" !!!! HTTP SERVICE CALL FAILED !!!!")
+        traceback.print_exc()
         code = 101
         response_data = {}
-
     end_time = time.time()
     total_time = (end_time - start_time) * 1000
-    ALL_LOG_OBJ.logger.info(" THE SERVICE FINISHED, RUN TIME IS:  %s" % total_time)
+    ALL_LOG_OBJ.logger.info(" THE SERVICE FINISHED, RUN TIME IS:  %s\n\n" % total_time)
     return jsonify({
         'code': code,
         'data': response_data
