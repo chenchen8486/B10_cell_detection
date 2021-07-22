@@ -163,8 +163,8 @@ def parser():
         image_name = data["image_name"]  # 30000B000C0_0_defectClass.bmp
         split_info_list = image_name.split('_')  # 把图像的主名称按照下划线拆解成元素列表
         zm_of_fm = split_info_list[1]             # 'ZM' or 'FM'
-        long_or_short = split_info_list[2]        # 'L' or 'S'
-        left_or_right = split_info_list[3]        # 'L' or 'R'
+        left_or_right = split_info_list[2]        # 'L' or 'R'
+        long_or_short = split_info_list[3]        # 'L' or 'S'
         image_id = int(split_info_list[4][0])     # 0 or 1 or 2
 
         image_base64 = data["image_base64"]

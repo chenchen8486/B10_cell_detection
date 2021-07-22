@@ -9,8 +9,8 @@ import cv2
 
 if __name__ == '__main__':
     print('bingo...')
-    image_file_path = "D:/4_data/B10_cell_data/test_http/1_big/2_below"
-    # image_file_path = "D:/4_data/B10_cell_data/test_http/temp"
+    # image_file_path = "D:/4_data/B10_cell_data/test_http/1_big/2_below"
+    image_file_path = "D:/4_data/B10_cell_data/test_http/temp"
     # 定义IP地址和端口号
     test_host, test_port = "127.0.0.1", "12345"
     request_url = "http://{}:{}/algorithm/api/cell_detection".format(test_host, test_port)
@@ -28,7 +28,7 @@ if __name__ == '__main__':
             # 定义要发送的数据包的数据结构
             start2 = time.time()
             req_json = {
-                "image_name": 'panelID_ZM_S_R_0.bmp',  # image_name: panelID_ZM_S_L_0.bmp,
+                "image_name": image_name,  # image_name: panelID_ZM_L_S_0.bmp,
                 "image_base64": base64.b64encode(image_data),
                 "image_resize_ratio": 0.5,
                 "image_type": "big",
