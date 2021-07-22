@@ -161,7 +161,12 @@ def parser():
 
         # 2）解析data数据中各个关键数据
         image_name = data["image_name"]  # 30000B000C0_0_defectClass.bmp
-        image_id = image_name.split('_')[1][0]  # 0, 1, 2
+        split_info_list = image_name.split('_')  # 把图像的主名称按照下划线拆解成元素列表
+        zm_of_fm = split_info_list[1]             # 'ZM' or 'FM'
+        long_or_short = split_info_list[2]        # 'L' or 'S'
+        left_or_right = split_info_list[3]        # 'L' or 'R'
+        image_id = int(split_info_list[4][0])     # 0 or 1 or 2
+
         image_base64 = data["image_base64"]
         image_resize_ratio = float(data["image_resize_ratio"])  # 0.5
         image_type = data["image_type"]  # big, middle, small
@@ -175,18 +180,17 @@ def parser():
             cv_image = bytes2cv(binary_data)
 
         # 4）调用检测函数，并返回C++需要的输出结果
-        direction_type, mark_rslt_list, corner_rslt_dict, frontier_rslt_dict, defect_rslt_list, draw_defect_panel\
-                                                                                              = defect_detection(
-                                                                                                cv_image, image_type,
-                                                                                                image_id,
-                                                                                                image_resize_ratio)
+        image_info_dict = {'image_name': image_name, 'zm_or_fm': zm_of_fm, 'long_or_short': long_or_short, 'left_or_right': left_or_right,
+                           'resize_ratio': image_resize_ratio, 'image_type': image_type, 'image_id': image_id}
+        mark_rslt_list, corner_rslt_dict, frontier_rslt_dict, defect_rslt_list, draw_defect_panel = defect_detection(
+                                                                                                cv_image, image_info_dict)
         # 获取倒角宽高值
         corner_rslt_dict['upper_corner_x'] = corner_rslt_dict['upper_corner'][0]
         corner_rslt_dict['upper_corner_y'] = corner_rslt_dict['upper_corner'][1]
         corner_rslt_dict['below_corner_x'] = corner_rslt_dict['below_corner'][0]
         corner_rslt_dict['below_corner_y'] = corner_rslt_dict['below_corner'][1]
         # 获取左右相机类型
-        direction_type = 0 if direction_type == 'left' else 1
+        direction_type = 0 if left_or_right == 'L' else 1
 
         # 5）存储各类图像结果，如果存储就存储到指定路径下，否则就将图像数据删除
         if save_detect_image:
@@ -209,7 +213,7 @@ def parser():
                 del mark_rslt_list['below_crop_img']
 
         # 6）把最终检测结果打包成字典，进行返回
-        response_data = {'direction_type': direction_type, 'image_id': int(image_id),
+        response_data = {'direction_type': direction_type, 'image_id': image_id,
                          'corner_rslt_dict': corner_rslt_dict, 'frontier_rslt_dict':  frontier_rslt_dict,
                          'defect_rslt_list': defect_rslt_list, 'defect_num': len(defect_rslt_list)}
     # except Exception as e:

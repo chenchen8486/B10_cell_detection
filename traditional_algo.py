@@ -7,6 +7,7 @@ import time
 import math
 import random
 import json
+import traceback
 from utils import *
 from skimage.measure import label, regionprops
 # global product_type, product_id, resize_ratio, dilate_ratio
@@ -622,13 +623,15 @@ def crop_and_draw_corner_tradition(input_img, dilate_ratio, corner_pos_list, off
     return draw_panel, crop_rect
 
 
-def get_mark_result(input_image, mark_crop_list, crop_rect_list, direction_type,
+def get_mark_result(input_image, image_location_class, mark_crop_list, crop_rect_list, direction_type,
                     product_type, product_id, resize_ratio, dilate_ratio, rotate_angle, fit_vertical_line):
     """
     功能：获取mark到上（下）和左（右）边距，但是需要判断在固定位置到底是否存在有mark，有才能提供测量结果。
     描述：如果在上述指定条件下，首先判断是否存在mark，如果不存在直接返回无，否则：记录mark中心点坐标，
          根据这个中心点在指定区域下crop出来一个稍大检测区域，计算检测区域第一行和第一列的std用来填充旋转后的黑边。
          然后crop出来的大图旋转，最后根据逐行的std和逐列的std判断出坐标位置，根据这些与mark中心坐标计算边距。
+    参数：
+     image_location_class是列表中其中一个元素： ['NO_OBJ', 'ALL', 'UPPER', 'BELOW', 'MIDDLE']
     """
 
     mark_mesure_result_dict = {'upper_mark': [0, 0], 'below_mark': [0, 0],
@@ -643,7 +646,8 @@ def get_mark_result(input_image, mark_crop_list, crop_rect_list, direction_type,
         cut_pt_x, cut_pt_y = fit_vertical_line[0][0] + 200, img_h // 2
 
     # ***** 上图 *****
-    if product_id == 0 and (product_type == 'big' or product_type == 'middle'):
+    # if product_id == 0 and (product_type == 'big' or product_type == 'middle'):
+    if image_location_class == 'UPPER':
         crop_rotate_stitiching_mark_img = stitiching_mark_img[0:cut_pt_y, :]
         mark_centroid_list = get_mark_region(crop_rotate_stitiching_mark_img, mark_area_th)
         upper_mark_centroid_x, upper_mark_centroid_y = mark_centroid_list[0][0], mark_centroid_list[0][1]
@@ -664,7 +668,8 @@ def get_mark_result(input_image, mark_crop_list, crop_rect_list, direction_type,
         mark_mesure_result_dict['upper_rect'] = crop_rect
 
     # ***** 下图 *****
-    elif (product_id == 1 and product_type == 'middle') or product_id == 2:
+    # elif (product_id == 1 and product_type == 'middle') or product_id == 2:
+    elif image_location_class == 'BELOW':
         crop_rotate_stitiching_mark_img = stitiching_mark_img[cut_pt_y:, :]
         mark_centroid_list = get_mark_region(crop_rotate_stitiching_mark_img, mark_area_th)
         below_mark_centroid_x, below_mark_centroid_y = mark_centroid_list[0][0], mark_centroid_list[0][1]
@@ -692,7 +697,8 @@ def get_mark_result(input_image, mark_crop_list, crop_rect_list, direction_type,
         mark_mesure_result_dict['below_rect'] = crop_rect
 
     # ***** 全图 *****
-    elif product_id == 0 and product_type == 'small':
+    # elif product_id == 0 and product_type == 'small':
+    elif image_location_class == 'ALL':
         # 计算上半部分的mark
         crop_rotate_stitiching_mark_img = stitiching_mark_img[0:cut_pt_y, :]
         mark_centroid_list = get_mark_region(crop_rotate_stitiching_mark_img, mark_area_th)
@@ -736,6 +742,14 @@ def get_mark_result(input_image, mark_crop_list, crop_rect_list, direction_type,
         mark_mesure_result_dict['below_crop_img'] = crop_below_bgr_img
         mark_mesure_result_dict['upper_rect'] = crop_rect_upper
         mark_mesure_result_dict['below_rect'] = crop_rect_below
+    else:
+        mark_mesure_result_dict['upper_mark'] = [0, 0]
+        mark_mesure_result_dict['below_mark'] = [0, 0]
+        mark_mesure_result_dict['upper_crop_img'] = None
+        mark_mesure_result_dict['below_crop_img'] = None
+        mark_mesure_result_dict['upper_rect'] = []
+        mark_mesure_result_dict['below_rect'] = []
+
     return mark_mesure_result_dict
 
 
@@ -922,11 +936,11 @@ def find_triangle_2_corner_pt(vertical_inlier_pt_list, horizontal_inlier_pt_list
     return endpoint_hori[0], endpoint_hori[1], corner_w, corner_h
 
 
-def calcul_hori_pos(canny_bw_img, row_step=3, product_id=0):
+def calcul_hori_pos(canny_bw_img, image_location_class, row_step=3):
     '''说明： 利用canny图像进行水平投影， 根据每行的白像素数量，大致定位到边缘的行坐标信息'''
     height, width = canny_bw_img.shape[0], canny_bw_img.shape[1]
     roi_y = 0
-    if product_id == 0:
+    if image_location_class == 'UPPER':
         # 从上到下循环
         for row_id in range(0, height, row_step):
             white_pos = np.vstack(np.where(canny_bw_img[row_id, :] == 255))
@@ -972,7 +986,7 @@ def calcul_vert_pos(canny_bw_img, col_step=3, direction_type='left'):
     return roi_x
 
 
-def crop_corner_roi_img(input_image, product_id, crop_size):
+def crop_corner_roi_img(input_image, image_location_class, crop_size):
     ''' 说明：把图缩放到很小， 然后提Canny边缘，水平垂直投影找到边，估算roi的x,y坐标，根据这个crop出区域 '''
     canny_resize_ratio = 0.1
 
@@ -981,7 +995,7 @@ def crop_corner_roi_img(input_image, product_id, crop_size):
     canny_bw_image = contour_detect(resize_image)
 
     # 通过水平 & 垂直投影大致估算出 Roi的角点
-    roi_center_y = calcul_hori_pos(canny_bw_image, 3, product_id)
+    roi_center_y = calcul_hori_pos(canny_bw_image, image_location_class, 3)
     roi_center_x = calcul_vert_pos(canny_bw_image, 3, 'right')
 
     # 将点换算到原始坐标系
@@ -1010,7 +1024,7 @@ def crop_corner_roi_img(input_image, product_id, crop_size):
     return roi_rect, roi_image
 
 
-def get_corner_tradition(input_image, direction_type, product_id, product_type, dilate_ratio):
+def get_corner_tradition(input_image, image_location_class, direction_type, product_id, product_type, dilate_ratio):
     """
     算法说明：
     1） 首先判断如果是左相机拍照， 先将左相机图像，统一转换成右相机，便于统一算法计算。
@@ -1019,7 +1033,9 @@ def get_corner_tradition(input_image, direction_type, product_id, product_type, 
     4） 然后寻找待拟合三角形的 交点，以这个交点找到两条边的端点，根据水平边的起点作为外接矩形的起点，两条边到交点的距离作为宽高
        （这样定义外接矩形可能有问题，最好通过3个点直接绘制三角形, 但是直接绘制三角形显示不是非常美观）
     5） 无论上图或者下图，矩形起点都是左上角，下图的话也是先要翻转到上图，便于统一处理。
-    ******* 终要： 函数中crop_left, crop_top, crop_right, crop_bottom是超参数，需要根据现场特定情况设定，但是两个直角边一定要大一些。
+    ******* 重要： 函数中crop_left, crop_top, crop_right, crop_bottom是超参数，需要根据现场特定情况设定，但是两个直角边一定要大一些。
+    参数：
+    image_location_class是列表中其中一个元素： ['NO_OBJ', 'ALL', 'UPPER', 'BELOW', 'MIDDLE']
     """
     # 定义corner数据结构
     corner_measure_result_dict = {'upper_corner': [0, 0], 'below_corner': [0, 0], 'upper_crop_img': None,
@@ -1032,10 +1048,11 @@ def get_corner_tradition(input_image, direction_type, product_id, product_type, 
         input_image = np.flip(input_image, 1)
 
     # 上图
-    if product_id == 0 and (product_type == 'big' or product_type == 'middle'):
-        crop_left, crop_top, crop_right, crop_bottom = 600, 80, 80, 600
+    # if product_id == 0 and (product_type == 'big' or product_type == 'middle'):
+    if image_location_class == 'UPPER':
+        crop_left, crop_top, crop_right, crop_bottom = 600, 80, 80, 600  # 根据定位到corner的粗定位点后，外扩参数
         crop_size = [crop_left, crop_top, crop_right, crop_bottom]
-        roi_rect, roi_image = crop_corner_roi_img(input_image, product_id, crop_size)
+        roi_rect, roi_image = crop_corner_roi_img(input_image, image_location_class, crop_size)
         roi_canny_img = contour_detect(roi_image)
         # 在ROI获取"水平拟合线"段的内点列表
         horizontal_inlier_pt_list, _ = vertical_projection(roi_canny_img, 'right', 1, 30, L1_THRESH)
@@ -1058,12 +1075,12 @@ def get_corner_tradition(input_image, direction_type, product_id, product_type, 
             corner_measure_result_dict['upper_rect'] = [image_width-crop_rect[0], crop_rect[1], crop_rect[2], crop_rect[3]]
         else:
             corner_measure_result_dict['upper_rect'] = crop_rect
-
     # 下图
-    elif (product_id == 1 and product_type == 'middle') or product_id == 2:
+    # elif (product_id == 1 and product_type == 'middle') or product_id == 2:
+    elif image_location_class == 'BELOW':
         crop_left, crop_top, crop_right, crop_bottom = 600, 600, 80, 80
         crop_size = [crop_left, crop_top, crop_right, crop_bottom]
-        roi_rect, roi_image = crop_corner_roi_img(input_image, product_id, crop_size)
+        roi_rect, roi_image = crop_corner_roi_img(input_image, image_location_class, crop_size)
         flip_roi_image = np.flip(roi_image, 0)  # 反转ROI成上图，便于后续操作与上图一致
         flip_roi_canny_img = contour_detect(flip_roi_image)
 
@@ -1089,11 +1106,12 @@ def get_corner_tradition(input_image, direction_type, product_id, product_type, 
             corner_measure_result_dict['below_rect'] = crop_rect
 
     # 上图 & 下图
-    elif product_id == 0 and product_type == 'small':
+    # elif product_id == 0 and product_type == 'small':
+    elif image_location_class == 'ALL':
         ''' 上半张图'''
         crop_left, crop_top, crop_right, crop_bottom = 600, 80, 80, 600
         crop_size = [crop_left, crop_top, crop_right, crop_bottom]
-        roi_rect, roi_image = crop_corner_roi_img(input_image, 0, crop_size)
+        roi_rect, roi_image = crop_corner_roi_img(input_image, 'UPPER', crop_size)
         roi_canny_img = contour_detect(roi_image)
         # 在ROI获取"水平拟合线"段的内点列表
         horizontal_inlier_pt_list, _ = vertical_projection(roi_canny_img, 'right', 1, FIT_PT_NUM, L1_THRESH)
@@ -1122,7 +1140,7 @@ def get_corner_tradition(input_image, direction_type, product_id, product_type, 
         ''' 下半张图'''
         crop_left, crop_top, crop_right, crop_bottom = 600, 600, 80, 80
         crop_size = [crop_left, crop_top, crop_right, crop_bottom]
-        roi_rect, roi_image = crop_corner_roi_img(input_image, 1, crop_size)
+        roi_rect, roi_image = crop_corner_roi_img(input_image, 'BELOW', crop_size)
         flip_roi_image = np.flip(roi_image, 0)  # 反转ROI成上图，便于后续操作与上图一致
         flip_roi_canny_img = contour_detect(flip_roi_image)
 
@@ -1146,6 +1164,12 @@ def get_corner_tradition(input_image, direction_type, product_id, product_type, 
             corner_measure_result_dict['below_rect'] = [image_width - crop_rect[0], crop_rect[1], crop_rect[2], crop_rect[3]]
         else:
             corner_measure_result_dict['below_rect'] = crop_rect
-
+    else:
+        corner_measure_result_dict['upper_corner'] = [0, 0]
+        corner_measure_result_dict['below_corner'] = [0, 0]
+        corner_measure_result_dict['upper_crop_img'] = None
+        corner_measure_result_dict['below_crop_img'] = None
+        corner_measure_result_dict['upper_rect'] = []
+        corner_measure_result_dict['below_rect'] = []
     return corner_measure_result_dict
 

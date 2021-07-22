@@ -9,6 +9,7 @@ import random
 import json
 import _thread
 import tensorflow as tf
+import traceback
 from utils import save_crop_image
 from log import ALL_LOG_OBJ
 from traditional_algo import *
@@ -147,9 +148,64 @@ def get_defect_result(input_image, crop_rect_list, prediction_defect_list):
     return cc_info
 
 
-def get_detection_result(input_image, direction_type, product_type, product_id, resize_ratio, rotate_angle,
-                         inlier_pt_list, fit_vertical_line, prediction_result_list, crop_rect_list):
+def image_location_classify(input_image, image_info_dict):
+    """
+    说明：- 最终估计出图像的方位，从而不需要依赖 product_id, product_type等参数。
+         - 估计出的方位总共分为：['NO_OBJ', 'ALL', 'UPPER', 'BELOW', 'MIDDLE'] 几个类别。
+         - 无论图像是左右相机采集，一律转换到右侧相机，便于计算，因为最终目标就是要估计出上述状态，不关心左右
+    参数：input_image: 是原始的灰度图像
+    """
+    # 解析图像状态的关键参数
+    direction_type = 'left' if image_info_dict['left_or_right'] == 'L' else 'right'
+    # 定义图像类别名称列表
+    class_name_list = ['NO_OBJ', 'ALL', 'UPPER', 'BELOW', 'MIDDLE']
+
+    # 对输入图像 再次进行缩小处理，便于快速计算，估计类别
+    input_resize_ratio = 0.2
+    resize_input_image = cv2.resize(input_image, (0, 0), fx=input_resize_ratio, fy=input_resize_ratio, interpolation=cv2.INTER_LINEAR)
+
+    # 图像无论是左侧 还是 右侧相机，一律翻转到右侧相机，便于统计计算
+    if direction_type == 'left':
+        resize_input_image = np.flip(resize_input_image, 1)
+
+    # 计算当前resize图像的上（第一行），下（最后一行），左（第一列），右（最后一列）进行std计算
+    upper_row = resize_input_image[0, :]
+    below_row = resize_input_image[-1, :]
+    left_col = resize_input_image[:, 0]
+    right_col = resize_input_image[:, -1]
+    std_upper = np.std(upper_row, ddof=1)  # ddof=1代表无偏样本
+    std_below = np.std(below_row, ddof=1)
+    std_left = np.std(left_col, ddof=1)
+    std_right = np.std(right_col, ddof=1)
+
+    # 根据阈值来判断图像位置的类别信息
+    std_th = 4
+    image_location_class = 'NO_OBJ'
+    if std_upper < std_th and std_below < std_th and std_left < std_th and std_right < std_th:        # NO_IMAGE
+        image_location_class = class_name_list[0]
+    elif (std_upper < std_th and std_right < std_th and std_below < std_th) and std_left > std_th:    # ALL
+        image_location_class = class_name_list[1]
+    elif (std_upper < std_th and std_right < std_th) and (std_below > std_th and std_left > std_th):  # UPPER
+        image_location_class = class_name_list[2]
+    elif (std_below < std_th and std_right < std_th) and (std_upper > std_th and std_left > std_th):  # BELOW
+        image_location_class = class_name_list[3]
+    elif (std_right < std_th) and (std_upper > std_th and std_below > std_th, std_left > std_th):     # MIDDLE
+        image_location_class = class_name_list[4]
+    return image_location_class
+
+
+def get_detection_result(input_image, image_info_dict, rotate_angle, inlier_pt_list, fit_vertical_line,
+                         prediction_result_list, crop_rect_list):
+
+    # 解析图像关键信息
+    direction_type = 'left' if image_info_dict['left_or_right'] == 'L' else 'right'
+    product_type = image_info_dict['image_type']
+    product_id = image_info_dict['image_id']
+    resize_ratio = image_info_dict['resize_ratio']
     dilate_ratio = 1 / resize_ratio
+
+    # 0）通过图像信息判断， 当前相机拍摄的图像位于什么位置 返回其中一个元素：['NO_OBJ', 'ALL', 'UPPER', 'BELOW', 'MIDDLE']
+    image_location_class = image_location_classify(input_image, image_info_dict)
 
     # 1) frontier: 无论id是什么，磨边是共同需要检测的 ok
     # 返回结果：(1)在存储图像上绘制，绘制宽高单位是原始分辨率， 已经定义好了crop_offset了，并存按照offset制作了小图。
@@ -161,6 +217,7 @@ def get_detection_result(input_image, direction_type, product_type, product_id, 
                                                              inlier_pt_list, fit_vertical_line, rotate_angle)
     except:
         ALL_LOG_OBJ.logger.info('!!!! Frontier measure failed !!!!')
+        traceback.print_exc()
         frontier_measure_result_dict_ = {'frontier_width1': 0, 'crop_img1': None,
                                          'frontier_width2': 0, 'crop_img2': None,
                                          'frontier_width3': 0, 'crop_img3': None,
@@ -171,11 +228,12 @@ def get_detection_result(input_image, direction_type, product_type, product_id, 
     #         (2)mark宽高，现有图像宽高(非原始图像尺寸)，单位是像素
     try:
         mark_crop_list = prediction_result_list[1]
-        mark_measure_result_dict_ = get_mark_result(input_image, mark_crop_list, crop_rect_list, direction_type,
-                                                    product_type, product_id, resize_ratio, dilate_ratio, rotate_angle,
-                                                    fit_vertical_line)
+        mark_measure_result_dict_ = get_mark_result(input_image, image_location_class, mark_crop_list, crop_rect_list,
+                                                    direction_type, product_type, product_id, resize_ratio,
+                                                    dilate_ratio, rotate_angle, fit_vertical_line)
     except:
         ALL_LOG_OBJ.logger.info('!!!! Mark measure failed !!!!')
+        traceback.print_exc()
         mark_measure_result_dict_ = {'upper_mark': [0, 0], 'below_mark': [0, 0], 'upper_crop_img': None,
                                      'below_crop_img': None, 'upper_rect': [], 'below_rect': []}
 
@@ -183,9 +241,10 @@ def get_detection_result(input_image, direction_type, product_type, product_id, 
     # 返回结果：(1)在存储图像上绘制，绘制宽高单位是原始分辨率， 已经定义好了crop_offset了，并存按照offset制作了小图。
     #         (2)corner宽度，现有图像宽度(非原始图像尺寸)，单位是像素
     try:
-        corner_measure_result_dict_ = get_corner_tradition(input_image, direction_type, product_id, product_type, dilate_ratio)
+        corner_measure_result_dict_ = get_corner_tradition(input_image, image_location_class, direction_type, product_id, product_type, dilate_ratio)
     except:
         ALL_LOG_OBJ.logger.info('!!!! Corner measure failed !!!!')
+        traceback.print_exc()
         corner_measure_result_dict_ = {'upper_corner': [0, 0], 'below_corner': [0, 0], 'upper_crop_img': None,
                                        'below_crop_img': None, 'upper_rect': [], 'below_rect': []}
 
@@ -198,8 +257,9 @@ def get_detection_result(input_image, direction_type, product_type, product_id, 
         defect_result_list_ = get_defect_result(input_image, crop_rect_list, prediction_defect_list)
     except:
         ALL_LOG_OBJ.logger.info('!!!! Defect detection failed !!!!')
+        traceback.print_exc()
         defect_result_list_ = []
-    return mark_measure_result_dict_, corner_measure_result_dict_, frontier_measure_result_dict_, defect_result_list_
+    return image_location_class, mark_measure_result_dict_, corner_measure_result_dict_, frontier_measure_result_dict_, defect_result_list_
 
 
 def cut_image(input_image, direction_type):
@@ -283,7 +343,7 @@ def test_draw_result(cut_input_image, mark_mesure_result_dict, corner_mesure_res
         cv2.imwrite('./result/defect.png', temp)
 
 
-def draw_all_defect(input_image, defect_result_list, product_type, product_id, direction_type):
+def draw_all_defect(input_image, image_location_class, defect_result_list, product_type, product_id, direction_type):
     # 缩放图像便于后续的计算与显示
     ui_resize = 0.25
     input_resize_gray = cv2.resize(input_image, (0, 0), fx=ui_resize, fy=ui_resize, interpolation=cv2.INTER_LINEAR)
@@ -312,14 +372,17 @@ def draw_all_defect(input_image, defect_result_list, product_type, product_id, d
     cut_upper, cut_below, cut_left, cut_right = 0, 0, 0, 0
     cut_offset = 50
     # 1） 判断上下裁切位置
-    if product_id == 0 and (product_type == 'big' or product_type == 'middle'):  # 上图
-        cut_upper = calcul_hori_pos(canny_bw_image, 3, 0)
-    elif (product_id == 1 and product_type == 'middle') or product_id == 2:  # 下图
-        cut_below = calcul_hori_pos(canny_bw_image, 3, product_id)
-    elif product_id == 0 and product_type == 'small':  # 上图 & 下图
+    # if product_id == 0 and (product_type == 'big' or product_type == 'middle'):  # 上图
+    if image_location_class == 'UPPER':
+        cut_upper = calcul_hori_pos(canny_bw_image, 'UPPER', 3)
+    # elif (product_id == 1 and product_type == 'middle') or product_id == 2:  # 下图
+    elif image_location_class == 'BELOW':
+        cut_below = calcul_hori_pos(canny_bw_image, 'BELOW', 3)
+    # elif product_id == 0 and product_type == 'small':  # 上图 & 下图
+    elif image_location_class == 'ALL':
         # 垂直投影 裁切行的位置
-        cut_upper = calcul_hori_pos(canny_bw_image, 3, 0)
-        cut_below = calcul_hori_pos(canny_bw_image, 3, 2)
+        cut_upper = calcul_hori_pos(canny_bw_image, 'UPPER', 3)
+        cut_below = calcul_hori_pos(canny_bw_image, 'BELOW', 3)
     # 2) 开始上下裁切
     if cut_upper != 0:
         cut_upper = cut_upper - cut_offset
@@ -349,20 +412,33 @@ def draw_all_defect(input_image, defect_result_list, product_type, product_id, d
     return input_resize_bgr
 
 
-def defect_detection(input_image, _product_type, _product_id, _resize_ratio):
-    product_type = _product_type
-    product_id = int(_product_id)
-    resize_ratio = _resize_ratio
-    dilate_ratio = 1 / _resize_ratio
+def defect_detection(input_image, image_info_dict):
+    """
+    说明：
+    数据结构：
+    input_image: 单通道图像
+    image_info_dict = {'image_name': image_name,            # str: xxxxx.bmp
+                       'zm_or_fm': zm_of_fm,                # str: 'ZM' or 'FM'
+                       'long_or_short': long_or_short,      # str: 'L' or 'S'
+                       'left_or_right': left_or_right,      # str: 'L' or 'R'
+                       'resize_ratio': image_resize_ratio,  # float: 0.5
+                       'image_type': image_type,            # str: 'big' or 'middle' or 'small'
+                       'image_id': image_id}                # int: 0 or 1 or 2
+    """
+
+    product_type = image_info_dict['image_type']
+    product_id = image_info_dict['image_id']
+    resize_ratio = image_info_dict['resize_ratio']
+    dilate_ratio = 1 / resize_ratio
 
     ALL_LOG_OBJ.logger.info('**************************************************')
     ALL_LOG_OBJ.logger.info('********** Semantic segment begining! ************')
     ALL_LOG_OBJ.logger.info('**************************************************')
     ALL_LOG_OBJ.logger.info('Receive Info' + 'Product typ: ' + str(product_type) + '   Product_id: ' + str(product_id))
 
-    # 1) 图像左右相机分类
-    direction_type = direction_classify(input_image)
-    ALL_LOG_OBJ.logger.info('Camera classify finished and result:  ' + str(direction_type))
+    # 1) 图像左右相机状态获取
+    direction_type = 'left' if image_info_dict['left_or_right'] == 'L' else 'right'
+    ALL_LOG_OBJ.logger.info('Camera classify finished and result:  ' + direction_type)
 
     # 2) 原始图像进行纵向裁切
     cut_input_image = cut_image(input_image, direction_type)
@@ -383,21 +459,21 @@ def defect_detection(input_image, _product_type, _product_id, _resize_ratio):
     ALL_LOG_OBJ.logger.info('Prediction finished...')
 
     # 6) 根据mask获取最终预测结果
-    mark_mesure_result_dict, corner_mesure_result_dict, frontier_mesure_result_dict, defect_result_list = \
-        get_detection_result(cut_input_image, direction_type, product_type, product_id, resize_ratio, rotate_angle,
-                             vertical_inlier_pt_list, fit_vertical_line, total_crop_prediction_list, crop_rect_list)
+    image_location_class, mark_mesure_result_dict, corner_mesure_result_dict, frontier_mesure_result_dict, defect_result_list = \
+        get_detection_result(cut_input_image, image_info_dict, rotate_angle, vertical_inlier_pt_list,
+                             fit_vertical_line, total_crop_prediction_list, crop_rect_list)
 
     # 7) 数据整理（将CUT_SIZE进行补偿）
     data_arrange(dilate_ratio, direction_type, mark_mesure_result_dict, corner_mesure_result_dict,
                  frontier_mesure_result_dict, defect_result_list)
 
     # 8) draw all defects in whole sheet
-    draw_defect_panel = draw_all_defect(input_image, defect_result_list, product_type, product_id, direction_type)
+    draw_defect_panel = draw_all_defect(input_image, image_location_class, defect_result_list, product_type, product_id, direction_type)
 
     ALL_LOG_OBJ.logger.info('**************************************************')
     ALL_LOG_OBJ.logger.info('********** Semantic segment finished! ************')
     ALL_LOG_OBJ.logger.info('**************************************************')
-    return direction_type, mark_mesure_result_dict, corner_mesure_result_dict, frontier_mesure_result_dict, defect_result_list, draw_defect_panel
+    return mark_mesure_result_dict, corner_mesure_result_dict, frontier_mesure_result_dict, defect_result_list, draw_defect_panel
 
 
 if __name__ == '__main__':
@@ -416,8 +492,16 @@ if __name__ == '__main__':
 
         start = time.time()
         print(image_name)
+
+        image_info_dict = {'image_name': image_name,  # str: xxxxx.bmp
+                           'zm_or_fm': 'ZM',  # str: 'ZM' or 'FM'
+                           'long_or_short': 'L',  # str: 'L' or 'S'
+                           'left_or_right': 'L',  # str: 'L' or 'R'
+                           'resize_ratio': 0.5,  # float: 0.5
+                           'image_type': 'big',  # str: 'big' or 'middle' or 'small'
+                           'image_id': 0}  # int: 0 or 1 or 2
         _, mark_mesure_result_dict, corner_mesure_result_dict, frontier_mesure_result_dict, defect_result_list = \
-            defect_detection(gray_resized_image, product_type, product_id, resize_ratio)
+            defect_detection(gray_resized_image, image_info_dict)
         end = time.time()
         print("the time is: ", ((end - start) * 1000))
         print("bingo...")

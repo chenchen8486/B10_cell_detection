@@ -205,6 +205,7 @@ def findIntersection(horizontal_start_pt, horizontal_end_pt, vertical_start_pt, 
 def contour_detect(input_image):
     """
     说明：找到图像的轮廓区域，返回一个二值化图， 255:白色像素, 0:黑色像素
+    input_image: Rgb or gray都可以
     """
     # input image is gray image
     edges = cv2.Canny(input_image, 20, 50)
