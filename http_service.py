@@ -26,6 +26,7 @@ def bytes2cv(data):
 
 
 def save_detection_result(image_name,
+                          panelID,
                           cv_image,
                           image_resize_ratio,
                           mark_rslt_list,
@@ -37,15 +38,19 @@ def save_detection_result(image_name,
     sub_img_name = os.path.splitext(image_name)[0]
 
     # 构建指定路径的文件夹名称
-    localtime = time.localtime(time.time())
-    year, month, day = localtime[0], localtime[1], localtime[2]
+    # localtime = time.localtime(time.time())
+    # year, month, day = localtime[0], localtime[1], localtime[2]
+    localtime = time.strftime("%Y-%m-%d", time.localtime())
+    t_list = localtime.split('-')
+    year, month, day = t_list[0], t_list[1], t_list[2]
+
     date_name = str(year) + "_" + str(month) + "_" + str(day)
     save_file_name_path = SAVE_DETECTION_RESULT_PATH + "/" + date_name
-    save_corner_file_name_path = save_file_name_path + "/" + "corner" + "/" + sub_img_name
-    save_frontier_file_name_path = save_file_name_path + "/" + "frontier" + "/" + sub_img_name
-    save_mark_file_name_path = save_file_name_path + "/" + "mark" + "/" + sub_img_name
-    save_defect_file_name_path = save_file_name_path + "/" + "defect" + "/" + sub_img_name
-    save_whole_result_name_path = save_file_name_path + "/" + "all" + "/" + sub_img_name
+    save_corner_file_name_path = save_file_name_path + "/" + "corner" + "/" + panelID
+    save_frontier_file_name_path = save_file_name_path + "/" + "frontier" + "/" + panelID
+    save_mark_file_name_path = save_file_name_path + "/" + "mark" + "/" + panelID
+    save_defect_file_name_path = save_file_name_path + "/" + "defect" + "/" + panelID
+    save_whole_result_name_path = save_file_name_path + "/" + "all" + "/" + panelID
 
     # 如果不存在指定存储文件的文件夹，那就创建
     if os.path.exists(save_corner_file_name_path) is not True:
@@ -166,6 +171,7 @@ def parser():
         left_or_right = split_info_list[2]        # 'L' or 'R'
         long_or_short = split_info_list[3]        # 'L' or 'S'
         image_id = int(split_info_list[4][0])     # 0 or 1 or 2
+        panelID = split_info_list[0]
 
         image_base64 = data["image_base64"]
         image_resize_ratio = float(data["image_resize_ratio"])  # 0.5
@@ -194,7 +200,7 @@ def parser():
 
         # 5）存储各类图像结果，如果存储就存储到指定路径下，否则就将图像数据删除
         if save_detect_image:
-            save_detection_result(image_name, cv_image, image_resize_ratio, mark_rslt_list, corner_rslt_dict,
+            save_detection_result(image_name, panelID, cv_image, image_resize_ratio, mark_rslt_list, corner_rslt_dict,
                                   frontier_rslt_dict, defect_rslt_list, draw_defect_panel)
         else:
             if corner_rslt_dict['upper_crop_img'] is not None:
