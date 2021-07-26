@@ -328,12 +328,12 @@ def get_frontier_result2(merge_frontier, input_image, resize_ratio, inlier_pt_li
         draw_panel[frontier_text_region_height:, :, :] = crop_ori_roi_bgr
         # 4） 绘制frontier小横线，但是要加上横幅高度这个offset
         cv2.line(draw_panel, (line_start_pos[0], line_start_pos[1]+frontier_text_region_height), (line_end_pos[0], line_end_pos[1]+frontier_text_region_height),
-                 (0, 0, 255), 2)
+                 (255, 255, 255), 2)
         # 5) 写下标题文字
         cv2.putText(draw_panel, "Edge measure " + str(pt_id) +": " + str(median_row_id_width * dilate_ratio * camera_resolution) + " um",
-                    (5, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 255), 1)
+                    (5, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1)
         cv2.putText(draw_panel, "Pos: " + "(x=" + str(pt[0] * dilate_ratio * camera_resolution) + " um, y=" + str(pt[1] * dilate_ratio * camera_resolution) + " um)",
-                    (5, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 255), 1)
+                    (5, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1)
 
         result_img_list.append(draw_panel)
         result_w_list.append(median_row_id_width)
@@ -343,7 +343,7 @@ def get_frontier_result2(merge_frontier, input_image, resize_ratio, inlier_pt_li
     frontier_measure_result_dict = {'frontier_width1': result_w_list[0], 'crop_img1': result_img_list[0],
                                     'frontier_width2': result_w_list[1], 'crop_img2': result_img_list[1],
                                     'frontier_width3': result_w_list[2], 'crop_img3': result_img_list[2],
-                                    'frontier_average': np.mean(result_w_list), 'crop_rect1': crop_rect_list[0],
+                                    'frontier_average': np.mean(result_w_list[0:3]), 'crop_rect1': crop_rect_list[0],
                                     'crop_rect2': crop_rect_list[1], 'crop_rect3': crop_rect_list[2]}
 
     return frontier_measure_result_dict
@@ -439,8 +439,8 @@ def crop_and_draw_mark(input_img, dilate_ratio, mark_center_x, mark_center_y, ho
     # 将输入灰度图转换RGB图像
     input_bgr_img = cv2.cvtColor(input_img, cv2.COLOR_GRAY2BGR)
     # 绘制水平和垂直距离的线段
-    cv2.line(input_bgr_img, (mark_center_x, mark_center_y), (hori_frontier_x, hori_frontier_y), (0, 0, 255), 4)
-    cv2.line(input_bgr_img, (mark_center_x, mark_center_y), (vert_frontier_x, vert_frontier_y), (0, 0, 255), 4)
+    cv2.line(input_bgr_img, (mark_center_x, mark_center_y), (hori_frontier_x, hori_frontier_y), (255, 255, 255), 4)
+    cv2.line(input_bgr_img, (mark_center_x, mark_center_y), (vert_frontier_x, vert_frontier_y), (255, 255, 255), 4)
 
     # 定义crop的具体坐标， 但是要保证的是crop出来的图像尺寸都是一致的
     crop_x = mark_center_x - offset_xy
@@ -476,9 +476,9 @@ def crop_and_draw_mark(input_img, dilate_ratio, mark_center_x, mark_center_y, ho
     draw_panel[mark_text_region_height:, :, :] = crop_bgr_img
     # 4) 写下标题文字
     cv2.putText(draw_panel, "Vert distance: " + str(int(dist_y * dilate_ratio)*camera_resolution) + " um",
-                (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
     cv2.putText(draw_panel, "Hori distance: " + str(int(dist_x * dilate_ratio)*camera_resolution) + " um",
-                (5, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                (5, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
     return draw_panel, crop_rect
 
@@ -569,17 +569,17 @@ def crop_and_draw_corner_tradition(input_img, dilate_ratio, corner_pos_list, off
     # cv2.rectangle(input_bgr_img, (corner_x, corner_y), (corner_x+corner_w, corner_y+corner_h), (0, 0, 255), 1)
 
     if img_upper_below_type == 'upper':
-        cv2.line(input_bgr_img, (corner_x, corner_y), (corner_x + corner_w, corner_y), (0, 0, 255), 1)  # 绘制水平线
+        cv2.line(input_bgr_img, (corner_x, corner_y), (corner_x + corner_w, corner_y), (255, 255, 255), 1)  # 绘制水平线
         cv2.line(input_bgr_img, (corner_x + corner_w, corner_y), (corner_x + corner_w, corner_y + corner_h),
-                 (0, 0, 255), 1)  # 绘制垂直线
-        cv2.line(input_bgr_img, (corner_x, corner_y), (corner_x + corner_w, corner_y + corner_h), (0, 0, 255),
+                 (255, 255, 255), 1)  # 绘制垂直线
+        cv2.line(input_bgr_img, (corner_x, corner_y), (corner_x + corner_w, corner_y + corner_h), (255, 255, 255),
                  1)  # 绘制R角线段
     else:
         cv2.line(input_bgr_img, (corner_x, corner_y + corner_h), (corner_x + corner_w, corner_y + corner_h),
-                 (0, 0, 255), 1)  # 绘制水平线
+                 (255, 255, 255), 1)  # 绘制水平线
         cv2.line(input_bgr_img, (corner_x + corner_w, corner_y), (corner_x + corner_w, corner_y + corner_h),
-                 (0, 0, 255), 1)  # 绘制垂直线
-        cv2.line(input_bgr_img, (corner_x, corner_y + corner_h), (corner_x + corner_w, corner_y), (0, 0, 255),
+                 (255, 255, 255), 1)  # 绘制垂直线
+        cv2.line(input_bgr_img, (corner_x, corner_y + corner_h), (corner_x + corner_w, corner_y), (255, 255, 255),
                  1)  # 绘制R角线段
 
     # 定义crop的具体坐标， 但是要保证的是crop出来的图像尺寸都是一致的（corner_center就是corner矩形的中心坐标）
@@ -617,9 +617,9 @@ def crop_and_draw_corner_tradition(input_img, dilate_ratio, corner_pos_list, off
     draw_panel[corner_text_region_height:, :, :] = crop_bgr_img
     # 4) 写下标题文字
     cv2.putText(draw_panel, "Corner width: " + str(int(corner_w * dilate_ratio * camera_resolution)) + " um",
-                (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
     cv2.putText(draw_panel, "Corner height: " + str(int(corner_h * dilate_ratio * camera_resolution)) + " um",
-                (5, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                (5, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
     return draw_panel, crop_rect
 
 
@@ -899,7 +899,7 @@ def find_triangle_2_corner_pt(vertical_inlier_pt_list, horizontal_inlier_pt_list
     image_width = input_image.shape[1]
     # 线段起点： 确定水平线和垂直线的起点坐标(起点坐标存储是[x, y]结构的)
     vertical_start_pt = vertical_inlier_pt_list[1]
-    horizontal_start_pt = horizontal_inlier_pt_list[-3]
+    horizontal_start_pt = horizontal_inlier_pt_list[-1]
     # 线段终点：确定水平线和垂直线的终点坐标(终点坐标存储是[x, y]结构的)
     vertical_end_pt = [vertical_start_pt[0], 0]
     horizontal_end_pt = [image_width, horizontal_start_pt[1]]
@@ -925,14 +925,14 @@ def find_triangle_2_corner_pt(vertical_inlier_pt_list, horizontal_inlier_pt_list
     # cv2.circle(input_image_bgr, (cross_pt[0], cross_pt[1]), 2, (0, 0, 255), -1)
     # for pt in vertical_inlier_pt_list:
     #     cv2.circle(input_image_bgr, (pt[0], pt[1]), 3, (0, 0, 255), -1)
-    # cv2.imwrite("D:/B10_cell_detection/B10_demo_python/debug_file/inference/2021_7_14/corner/0_cross_pt.bmp", input_image_bgr)
-    # cv2.imwrite("D:/B10_cell_detection/B10_demo_python/debug_file/inference/2021_7_14/corner/1_roi.bmp", crop_corner_roi_img)
-    # cv2.imwrite("D:/B10_cell_detection/B10_demo_python/debug_file/inference/2021_7_14/corner/2_contour.bmp", contour_mask)
+    # cv2.imwrite("D:/4_data/B10_cell_data/test_http/0_cross_pt.bmp", input_image_bgr)
+    # cv2.imwrite("D:/4_data/B10_cell_data/test_http/1_roi.bmp", crop_corner_roi_img)
+    # cv2.imwrite("D:/4_data/B10_cell_data/test_http/2_contour.bmp", contour_mask)
     #
     # input_image_bgr = cv2.cvtColor(input_image, cv2.COLOR_GRAY2BGR)
     # cv2.line(input_image_bgr, (endpoint_hori[0], endpoint_hori[1]), (cross_pt[0], cross_pt[1]), (255, 0, 0), 2)
     # cv2.line(input_image_bgr, (endpoint_vert[0], endpoint_vert[1]), (cross_pt[0], cross_pt[1]), (0,0,255), 2)
-    # cv2.imwrite("D:/B10_cell_detection/B10_demo_python/debug_file/inference/2021_7_14/corner/3_corner.bmp", input_image_bgr)
+    # cv2.imwrite("D:/4_data/B10_cell_data/test_http/3_corner.bmp", input_image_bgr)
     return endpoint_hori[0], endpoint_hori[1], corner_w, corner_h
 
 

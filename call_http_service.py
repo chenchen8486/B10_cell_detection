@@ -10,7 +10,7 @@ import cv2
 if __name__ == '__main__':
     print('bingo...')
     # image_file_path = "D:/4_data/B10_cell_data/test_http/1_big/2_below"
-    image_file_path = "D:/4_data/B10_cell_data/test_http/temp"
+    image_file_path = "D:/4_data/B10_cell_data/test_http/temp1"
     # 定义IP地址和端口号
     test_host, test_port = "127.0.0.1", "12345"
     request_url = "http://{}:{}/algorithm/api/cell_detection".format(test_host, test_port)

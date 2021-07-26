@@ -19,6 +19,14 @@ DEFECT_WH = config_data['DEFECT_WH']
 DEFECT_TEXT_REGION_HEIGHT = config_data['DEFECT_TEXT_REGION_HEIGHT']
 CAMERA_RESOLUTION = config_data['CAMERA_RESOLUTION']
 DEFECT_NAME_LIST = config_data['DEFECT_NAME_LIST']
+
+# 类别标签名称的列表
+label_name_list = config_data['LABEL_NAME_LIST']
+CHIPPINT_MAX_EDGE_SIZE = config_data['CHIPPINT_MAX_EDGE_SIZE']
+BROKEN_MAX_EDGE_SIZE = config_data['BROKEN_MAX_EDGE_SIZE']
+
+
+
 def bytes2cv(data):
     nparr = np.fromstring(data, np.uint8)
     img_decode = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
@@ -104,8 +112,10 @@ def save_detection_result(image_name,
 
     # 存储缺陷结果
     dilate_ratio = 1 / image_resize_ratio
+    resize_chipping_max_edge_size_pixels = int((CHIPPINT_MAX_EDGE_SIZE / CAMERA_RESOLUTION) * image_resize_ratio)
+    resize_broken_max_edge_size_pixels = int((BROKEN_MAX_EDGE_SIZE / CAMERA_RESOLUTION) * image_resize_ratio)
     if len(defect_rslt_list) != 0:
-        for defect_id, defect in enumerate(defect_rslt_list):
+        for defect_id, defect in enumerate(defect_rslt_list[:]):
             # 1) 定义crop的具体坐标，
             crop_x = defect['box_left'] - CROP_DEFECT_IMAGE_OFFSET
             if crop_x <= 0:
@@ -119,11 +129,27 @@ def save_detection_result(image_name,
             crop_bottom = defect['box_bottom'] + CROP_DEFECT_IMAGE_OFFSET
             if crop_bottom > cv_image.shape[0]:
                 crop_bottom = cv_image.shape[0]
+
             # 2）将原始缺陷的外扩后矩形crop出来，然后转换成BGR
             read_defect_rect = cv_image[defect['box_top']:defect['box_bottom'], defect['box_left']:defect['box_right']]
             defect_std_val = np.std(read_defect_rect, ddof=1)
             if defect_std_val < 5:  # 如果缺陷区域标准差很小， 证明是误报
+                defect_rslt_list.remove(defect)
                 continue
+
+            # 2.1) 如果缺陷尺寸的最长边 没有超过阈值， 那么将该缺陷删除
+            # 删除不满足条件的broken
+            if defect['type'] == 4 and (defect['box_width'] < resize_broken_max_edge_size_pixels and defect['box_height'] < resize_broken_max_edge_size_pixels):  # broken缺陷
+                defect_rslt_list.remove(defect)
+                continue
+
+            # 删除不满足条件的chipping
+            if defect['type'] == 5 and (defect['box_width'] < resize_chipping_max_edge_size_pixels and defect[
+                'box_height'] < resize_chipping_max_edge_size_pixels):  # broken缺陷
+                defect_rslt_list.remove(defect)
+                continue
+
+
 
             defect_crop = cv_image[crop_y:crop_bottom, crop_x:crop_right]
             defect_crop_bgr = cv2.cvtColor(defect_crop, cv2.COLOR_GRAY2BGR)
@@ -133,7 +159,7 @@ def save_detection_result(image_name,
             relative_right = relative_x + (defect['box_right'] - defect['box_left'])
             relative_bottom = relative_y + (defect['box_bottom'] - defect['box_top'])
             # 4）绘制rect框框
-            cv2.rectangle(defect_crop_bgr, (relative_x, relative_y), (relative_right, relative_bottom), (0, 0, 255), 1)
+            cv2.rectangle(defect_crop_bgr, (relative_x, relative_y), (relative_right, relative_bottom), (255, 255, 255), 1)
             # 5) 然后缩放到指定尺寸
             defect_crop_resize = cv2.resize(defect_crop_bgr, (DEFECT_WH, DEFECT_WH),  interpolation=cv2.INTER_LINEAR)
             # 6）创建一个带有横幅的图像buffer， defect_text_region_height就是这个横幅的高度
@@ -141,10 +167,10 @@ def save_detection_result(image_name,
             # 7）将图像拷贝到draw_panel里面
             draw_panel[DEFECT_TEXT_REGION_HEIGHT:, :, :] = defect_crop_resize
             # 8）写下标题文字
-            cv2.putText(draw_panel, "Defect cls: " + str(DEFECT_NAME_LIST[defect['type'] - 1]),
-                        (5, 13), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+            cv2.putText(draw_panel, "Defect cls: " + str(label_name_list[defect['type'] - 1]),
+                        (5, 13), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
             cv2.putText(draw_panel, "Defect size: (W: " + str(defect['box_width']*CAMERA_RESOLUTION*dilate_ratio) + "um,   H: " + str(defect['box_height']*CAMERA_RESOLUTION*dilate_ratio) + "um)",
-                        (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+                        (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
             img_save_name = "/" + sub_img_name + "_defect_" + str(defect_id) + "_" + str(defect['type']) + ".jpg"
             cv2.imwrite(save_defect_file_name_path + img_save_name, draw_panel)
     return 0
@@ -188,8 +214,9 @@ def parser():
         # 4）调用检测函数，并返回C++需要的输出结果
         image_info_dict = {'image_name': image_name, 'zm_or_fm': zm_of_fm, 'long_or_short': long_or_short, 'left_or_right': left_or_right,
                            'resize_ratio': image_resize_ratio, 'image_type': image_type, 'image_id': image_id}
-        mark_rslt_list, corner_rslt_dict, frontier_rslt_dict, defect_rslt_list, draw_defect_panel = defect_detection(
-                                                                                                cv_image, image_info_dict)
+        mark_rslt_list, corner_rslt_dict, frontier_rslt_dict, defect_rslt_list, draw_defect_panel, image_location_class\
+            = defect_detection(cv_image, image_info_dict)
+
         # 获取倒角宽高值
         corner_rslt_dict['upper_corner_x'] = corner_rslt_dict['upper_corner'][0]
         corner_rslt_dict['upper_corner_y'] = corner_rslt_dict['upper_corner'][1]
@@ -219,6 +246,14 @@ def parser():
                 del mark_rslt_list['below_crop_img']
 
         # 6）把最终检测结果打包成字典，进行返回
+        image_id = 99  # 初始化一个错误数据
+        if image_location_class == 'ALL':
+            image_id = 0
+        if image_location_class == 'UPPER':
+            image_id = 1
+        if image_location_class == 'BELOW':
+            image_id = 2
+
         response_data = {'direction_type': direction_type, 'image_id': image_id,
                          'corner_rslt_dict': corner_rslt_dict, 'frontier_rslt_dict':  frontier_rslt_dict,
                          'defect_rslt_list': defect_rslt_list, 'defect_num': len(defect_rslt_list)}

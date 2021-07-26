@@ -40,6 +40,11 @@ label_name_list = config_data['LABEL_NAME_LIST']
 # 为了给真实缺陷尺寸扩大一点（便于最后存图或显示）
 crop_corner_offset = config_data['CROP_CORNER_OFFSET']
 DEFECT_NAME_LIST = config_data['DEFECT_NAME_LIST']
+
+
+CHIPPINT_MAX_EDGE_SIZE = config_data['CHIPPINT_MAX_EDGE_SIZE']
+BROKEN_MAX_EDGE_SIZE = config_data['BROKEN_MAX_EDGE_SIZE']
+CAMERA_RESOLUTION = config_data['CAMERA_RESOLUTION']
 """"""
 global product_type, product_id, resize_ratio, dilate_ratio
 
@@ -74,7 +79,7 @@ def prediction(crop_image_list, label_name_list):
     return total_crop_prediction_list
 
 
-def get_defect_result(input_image, crop_rect_list, prediction_defect_list):
+def get_defect_result(input_image, crop_rect_list, prediction_defect_list, label_name_list):
     # 把每类缺陷的crop拼接成整图，然后存入list
     img_h, img_w = input_image.shape[0], input_image.shape[1]
     stitiching_img_list = []
@@ -112,7 +117,7 @@ def get_defect_result(input_image, crop_rect_list, prediction_defect_list):
                 info['box_width'] = info['box_right'] - info['box_left']
                 info['box_height'] = info['box_bottom'] - info['box_top']
                 info['box_area'] = info['box_width'] * info['box_height']
-                info['type'] = n + 1  # 缺陷类别
+                info['type'] = n + 3 + 1  # 缺陷类别  +3代表前面有frontier, corner, mark.  再+1 broken是第4个，chipping是第5个，与配置文件对应了
                 info['merge_flag'] = False  # 是否被合并的标记，初始化为False
                 cc_info.append(info)
     ALL_LOG_OBJ.logger.info('Defect rect before merge: %d' % len(cc_info))
@@ -195,7 +200,7 @@ def image_location_classify(input_image, image_info_dict):
 
 
 def get_detection_result(input_image, image_info_dict, rotate_angle, inlier_pt_list, fit_vertical_line,
-                         prediction_result_list, crop_rect_list):
+                         prediction_result_list, crop_rect_list, label_name_list):
 
     # 解析图像关键信息
     direction_type = 'left' if image_info_dict['left_or_right'] == 'L' else 'right'
@@ -249,12 +254,12 @@ def get_detection_result(input_image, image_info_dict, rotate_angle, inlier_pt_l
                                        'below_crop_img': None, 'upper_rect': [], 'below_rect': []}
 
     # 4) defect: 无论id是什么，缺陷是共同需要检测的
-    # 返回结果：(1)defect所有信息，现有图像尺寸(非原始图像尺寸)，单位是像素。 图像绘制与包存在http中进行。
+    # 返回结果：(1)defect所有信息，现有图像尺寸(非原始图像尺寸)，单位是像素。 图像绘制与保存在http中进行。
     try:
         prediction_defect_list = []
         for label_id in range(3, len(prediction_result_list)):
             prediction_defect_list.append(prediction_result_list[label_id])
-        defect_result_list_ = get_defect_result(input_image, crop_rect_list, prediction_defect_list)
+        defect_result_list_ = get_defect_result(input_image, crop_rect_list, prediction_defect_list, label_name_list)
     except:
         ALL_LOG_OBJ.logger.info('!!!! Defect detection failed !!!!')
         traceback.print_exc()
@@ -343,7 +348,7 @@ def test_draw_result(cut_input_image, mark_mesure_result_dict, corner_mesure_res
         cv2.imwrite('./result/defect.png', temp)
 
 
-def draw_all_defect(input_image, image_location_class, defect_result_list, product_type, product_id, direction_type):
+def draw_all_defect(input_image, image_resize_ratio, image_location_class, defect_result_list, product_type, product_id, direction_type):
     # 缩放图像便于后续的计算与显示
     ui_resize = 0.25
     input_resize_gray = cv2.resize(input_image, (0, 0), fx=ui_resize, fy=ui_resize, interpolation=cv2.INTER_LINEAR)
@@ -351,12 +356,25 @@ def draw_all_defect(input_image, image_location_class, defect_result_list, produ
 
     # 绘制缺陷 #####
     ui_dilate = 1 / ui_resize
-    color_list = [(0, 0, 255),  (255, 0, 0)]
+    color_list = [(128, 128, 0), (128, 0, 0), (0, 0, 128),  (0, 0, 255),  (255, 0, 0)]
+
+    resize_chipping_max_edge_size_pixels = int((CHIPPINT_MAX_EDGE_SIZE / CAMERA_RESOLUTION) * image_resize_ratio)
+    resize_broken_max_edge_size_pixels = int((BROKEN_MAX_EDGE_SIZE / CAMERA_RESOLUTION) * image_resize_ratio)
     if len(defect_result_list) != 0:
         for cc in defect_result_list:
             read_defect_rect = input_image[cc['box_top']:cc['box_bottom'], cc['box_left']:cc['box_right']]
             defect_std_val = np.std(read_defect_rect, ddof=1)
             if defect_std_val < 5:  # 如果缺陷区域标准差很小， 证明是误报
+                continue
+            # 2.1) 如果缺陷尺寸的最长边 没有超过阈值， 那么将该缺陷删除
+            # 删除不满足条件的broken
+            if cc['type'] == 4 and (cc['box_width'] < resize_broken_max_edge_size_pixels and cc['box_height'] < resize_broken_max_edge_size_pixels):  # broken缺陷
+                defect_result_list.remove(cc)
+                continue
+
+            # 删除不满足条件的chipping
+            if cc['type'] == 5 and (cc['box_width'] < resize_chipping_max_edge_size_pixels and cc['box_height'] < resize_chipping_max_edge_size_pixels):  # broken缺陷
+                defect_result_list.remove(cc)
                 continue
 
             rect_left, rect_top = int(cc['box_left'] * ui_resize), int(cc['box_top'] * ui_resize)
@@ -364,7 +382,7 @@ def draw_all_defect(input_image, image_location_class, defect_result_list, produ
             cv2.rectangle(input_resize_bgr, (rect_left, rect_top), (rect_right, rect_bottom), color_list[cc['type']-1], 1)
             text_pos_x = rect_left
             text_pos_y = rect_top - 4
-            cv2.putText(input_resize_bgr, DEFECT_NAME_LIST[cc['type']-1], (text_pos_x, text_pos_y),
+            cv2.putText(input_resize_bgr, label_name_list[cc['type']-1], (text_pos_x, text_pos_y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_list[cc['type']-1], 1)
 
     # 对图像进行裁剪
@@ -461,19 +479,19 @@ def defect_detection(input_image, image_info_dict):
     # 6) 根据mask获取最终预测结果
     image_location_class, mark_mesure_result_dict, corner_mesure_result_dict, frontier_mesure_result_dict, defect_result_list = \
         get_detection_result(cut_input_image, image_info_dict, rotate_angle, vertical_inlier_pt_list,
-                             fit_vertical_line, total_crop_prediction_list, crop_rect_list)
+                             fit_vertical_line, total_crop_prediction_list, crop_rect_list, label_name_list)
 
     # 7) 数据整理（将CUT_SIZE进行补偿）
     data_arrange(dilate_ratio, direction_type, mark_mesure_result_dict, corner_mesure_result_dict,
                  frontier_mesure_result_dict, defect_result_list)
 
     # 8) draw all defects in whole sheet
-    draw_defect_panel = draw_all_defect(input_image, image_location_class, defect_result_list, product_type, product_id, direction_type)
+    draw_defect_panel = draw_all_defect(input_image, resize_ratio, image_location_class, defect_result_list, product_type, product_id, direction_type)
 
     ALL_LOG_OBJ.logger.info('**************************************************')
     ALL_LOG_OBJ.logger.info('********** Semantic segment finished! ************')
     ALL_LOG_OBJ.logger.info('**************************************************')
-    return mark_mesure_result_dict, corner_mesure_result_dict, frontier_mesure_result_dict, defect_result_list, draw_defect_panel
+    return mark_mesure_result_dict, corner_mesure_result_dict, frontier_mesure_result_dict, defect_result_list, draw_defect_panel, image_location_class
 
 
 if __name__ == '__main__':
