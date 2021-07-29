@@ -209,6 +209,6 @@ def contour_detect(input_image):
     """
     # input image is gray image
     edges = cv2.Canny(input_image, 20, 50)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    open = cv2.dilate(edges, kernel)
-    return open
+    # kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    # open = cv2.dilate(edges, kernel)
+    return edges

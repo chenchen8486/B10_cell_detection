@@ -195,7 +195,7 @@ def vertical_projection(input_gray_image, direction_type, row_step=3,  fit_pt_nu
             if abs_l1 > l1_threshold:
                 vertical_projection_pt_list.append([col_id, row_id])
                 break
-    inlier_pt_list, best_k, best_b = fit_line_by_ransac(vertical_projection_pt_list, 3)
+    inlier_pt_list, best_k, best_b = fit_line_by_ransac(vertical_projection_pt_list, 5)
     return inlier_pt_list, vertical_projection_pt_list
 
 
@@ -640,6 +640,8 @@ def get_mark_result(input_image, image_location_class, mark_crop_list, crop_rect
     img_w, img_h = input_image.shape[1], input_image.shape[0]
     stitiching_mark_img = image_stitiching(mark_crop_list, crop_rect_list, img_h, img_w)
     mark_area_th = int(mark_size_th * resize_ratio * resize_ratio)
+
+    # cut_pt_y这个参数是裁切点
     if direction_type == 'left':
         cut_pt_x, cut_pt_y = fit_vertical_line[0][0] - 200, img_h // 2
     else:
@@ -670,10 +672,11 @@ def get_mark_result(input_image, image_location_class, mark_crop_list, crop_rect
     # ***** 下图 *****
     # elif (product_id == 1 and product_type == 'middle') or product_id == 2:
     elif image_location_class == 'BELOW':
-        crop_rotate_stitiching_mark_img = stitiching_mark_img[cut_pt_y:, :]
+        # crop_rotate_stitiching_mark_img = stitiching_mark_img[cut_pt_y:, :]
+        crop_rotate_stitiching_mark_img = stitiching_mark_img[0:cut_pt_y, :]
         mark_centroid_list = get_mark_region(crop_rotate_stitiching_mark_img, mark_area_th)
         below_mark_centroid_x, below_mark_centroid_y = mark_centroid_list[0][0], mark_centroid_list[0][1]
-        below_mark_centroid_y = int(below_mark_centroid_y + cut_pt_y)
+        # below_mark_centroid_y = int(below_mark_centroid_y + cut_pt_y)
         flip_input_img = cv2.flip(input_image, 0)
         inlier_pt_list, _ = vertical_projection(flip_input_img, direction_type, COL_STEP, FIT_PT_NUM, L1_THRESH)
         real_inlier_pt = [[pt[0], img_h - pt[1]] for pt in inlier_pt_list]
@@ -683,13 +686,14 @@ def get_mark_result(input_image, image_location_class, mark_crop_list, crop_rect
         dist_y_below = np.abs(real_inlier_pt[-1][1] - below_mark_centroid_y)
 
         # 绘制
-        temp = input_image[cut_pt_y:, :]
+        # temp = input_image[cut_pt_y:, :]
+        temp = input_image[0:cut_pt_y, :]
         crop_bgr_img, crop_rect = crop_and_draw_mark(temp, dilate_ratio, below_mark_centroid_x,
-                                                     below_mark_centroid_y - cut_pt_y, below_hori_frontier_x,
-                                                     below_hori_frontier_y - cut_pt_y, vert_frontier_x,
-                                                     vert_frontier_y - cut_pt_y, dist_x_below, dist_y_below,
+                                                     below_mark_centroid_y, below_hori_frontier_x,
+                                                     below_hori_frontier_y, vert_frontier_x,
+                                                     vert_frontier_y, dist_x_below, dist_y_below,
                                                      crop_mark_offset)
-        crop_rect[1] = crop_rect[1] + cut_pt_y
+        # crop_rect[1] = crop_rect[1] + cut_pt_y
 
         # 存储
         mark_mesure_result_dict['below_mark'] = [int(dist_x_below), int(dist_y_below)]
@@ -868,11 +872,11 @@ def find_triangle_edge(crop_corner_roi_img, contour_mask):
                o
     """
     roi_h, roi_w = crop_corner_roi_img.shape[0], crop_corner_roi_img.shape[1]
-    height_th = 3
+    height_th = 2
     # 1) 寻找垂直线段的倒角端点
     # -4的目的是留有一些冗余， 因为如果图像倾斜很有可能最后一列的白像素不是纵向想找到的端点
     find_vert_flag = False
-    for col_id in range(roi_w-4, -1, -1):
+    for col_id in range(roi_w-2, -1, -1):
         if find_vert_flag == True:  # 如果在纵向找到了白色点，证明已经找到端点，马上退出。
             break
         for row_id in range(0, roi_h):
@@ -882,7 +886,7 @@ def find_triangle_edge(crop_corner_roi_img, contour_mask):
                 endpoint_vert = [col_id+3, row_id]  # 把前面冗余补充回来
                 find_vert_flag = True
                 break
-    # 2）寻找水平线段的倒角端点(从最后一列便利，计算每列遇到白像素的高度,如果高度小于阈值，证明找到)
+    # 2）寻找水平线段的倒角端点(从最后一列遍历，计算每列遇到白像素的高度,如果高度小于阈值，证明找到)
     for col_id in range(roi_w-1, -1, -1):
         white_pos = np.vstack(np.where(contour_mask[:, col_id] == 255))
         if white_pos[0].shape[0] == 0:
@@ -899,7 +903,7 @@ def find_triangle_2_corner_pt(vertical_inlier_pt_list, horizontal_inlier_pt_list
     image_width = input_image.shape[1]
     # 线段起点： 确定水平线和垂直线的起点坐标(起点坐标存储是[x, y]结构的)
     vertical_start_pt = vertical_inlier_pt_list[1]
-    horizontal_start_pt = horizontal_inlier_pt_list[-1]
+    horizontal_start_pt = horizontal_inlier_pt_list[-2]
     # 线段终点：确定水平线和垂直线的终点坐标(终点坐标存储是[x, y]结构的)
     vertical_end_pt = [vertical_start_pt[0], 0]
     horizontal_end_pt = [image_width, horizontal_start_pt[1]]
@@ -980,7 +984,7 @@ def calcul_vert_pos(canny_bw_img, col_step=3, direction_type='left'):
             white_pos = np.vstack(np.where(canny_bw_img[:, col_id] == 255))
             if white_pos[0].shape[0] == 0:
                 continue
-            if white_pos[0].shape[0] > (height // 10):
+            if white_pos[0].shape[0] > (height // 20):
                 roi_x = col_id
                 break
     return roi_x
@@ -993,10 +997,12 @@ def crop_corner_roi_img(input_image, image_location_class, crop_size):
     # 对图像进行缩放 & Canny边缘提取
     resize_image = cv2.resize(input_image, (0, 0), fx=canny_resize_ratio, fy=canny_resize_ratio, interpolation=cv2.INTER_LINEAR)
     canny_bw_image = contour_detect(resize_image)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    canny_bw_image = cv2.dilate(canny_bw_image, kernel)
 
     # 通过水平 & 垂直投影大致估算出 Roi的角点
-    roi_center_y = calcul_hori_pos(canny_bw_image, image_location_class, 3)
-    roi_center_x = calcul_vert_pos(canny_bw_image, 3, 'right')
+    roi_center_y = calcul_hori_pos(canny_bw_image, image_location_class, 2)
+    roi_center_x = calcul_vert_pos(canny_bw_image, 2, 'right')
 
     # 将点换算到原始坐标系
     canny_dilate_ratio = 1 / canny_resize_ratio
@@ -1085,9 +1091,16 @@ def get_corner_tradition(input_image, image_location_class, direction_type, prod
         flip_roi_canny_img = contour_detect(flip_roi_image)
 
         # 在ROI获取"水平拟合线"段的内点列表
-        horizontal_inlier_pt_list, _ = vertical_projection(flip_roi_canny_img, 'right', 1, 20, L1_THRESH)
+        horizontal_inlier_pt_list, _ = vertical_projection(flip_roi_canny_img, 'right', 1, 25, L1_THRESH)
         # 在ROI获取"垂直拟合线"段的内点列表
-        vertical_inlier_pt_list, _ = horizontal_projection(flip_roi_canny_img, 'right', 1, 20, L1_THRESH)
+        vertical_inlier_pt_list, _ = horizontal_projection(flip_roi_canny_img, 'right', 1, 25, L1_THRESH)
+        # #### TEST
+        # temp = cv2.cvtColor(flip_roi_canny_img, cv2.COLOR_GRAY2BGR)
+        # for id, pt in enumerate(horizontal_inlier_pt_list):
+        #     cv2.circle(temp, (pt[0], pt[1]), 2, (0, 0, 255), -1)
+        # cv2.imwrite("D:/4_data/B10_cell_data/test_http/test4.png", temp)
+
+
         # 在ROI获取倒角外接矩形坐标
         rect_x, rect_y, rect_w, rect_h = find_triangle_2_corner_pt(vertical_inlier_pt_list, horizontal_inlier_pt_list, flip_roi_image)
         # 在真实图像上计算倒角矩形[x, y, w, h](无论上图或下图， 倒角外界矩形都是以左上角为起点)

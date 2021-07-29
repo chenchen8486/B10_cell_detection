@@ -36,7 +36,7 @@ BATCH_SIZE = config_data['BATCH_SIZE']
 SUB_IMAGE_SIZE = config_data['SUB_IMAGE_SIZE']
 # 类别标签名称的列表
 label_name_list = config_data['LABEL_NAME_LIST']
-# ["frontier", "mark", "corner",  "corner_dirty", "dirty_pt", "crack", "bubble"],
+
 # 为了给真实缺陷尺寸扩大一点（便于最后存图或显示）
 crop_corner_offset = config_data['CROP_CORNER_OFFSET']
 DEFECT_NAME_LIST = config_data['DEFECT_NAME_LIST']
@@ -79,7 +79,7 @@ def prediction(crop_image_list, label_name_list):
     return total_crop_prediction_list
 
 
-def get_defect_result(input_image, crop_rect_list, prediction_defect_list, label_name_list):
+def get_defect_result(input_image, image_resize_ratio, crop_rect_list, prediction_defect_list, label_name_list):
     # 把每类缺陷的crop拼接成整图，然后存入list
     img_h, img_w = input_image.shape[0], input_image.shape[1]
     stitiching_img_list = []
@@ -145,6 +145,29 @@ def get_defect_result(input_image, crop_rect_list, prediction_defect_list, label
                     cc_info[n]['box_right'] = new_r
                     cc_info[n]['box_bottom'] = new_b
                     cc_info[k]['merge_flag'] = True
+
+    # 上述合并完成后， 最后需要一些特殊条件去过滤误报：
+    resize_chipping_max_edge_size_pixels = int((CHIPPINT_MAX_EDGE_SIZE / CAMERA_RESOLUTION) * image_resize_ratio)
+    resize_broken_max_edge_size_pixels = int((BROKEN_MAX_EDGE_SIZE / CAMERA_RESOLUTION) * image_resize_ratio)
+    for defect_id, defect in enumerate(cc_info[:]):
+        # 1) 如果当前缺陷的外接矩形内的标准差很低， 那么认为是背景区域误报，进行删除
+        real_defect_rect = input_image[defect['box_top']:defect['box_bottom'], defect['box_left']:defect['box_right']]
+        defect_std_val = np.std(real_defect_rect, ddof=1)
+        if defect_std_val < 5:  # 如果缺陷区域标准差很小， 证明是误报
+            cc_info.remove(defect)
+            continue
+        # 2) 如果缺陷尺寸的最长边 没有超过阈值， 那么将该缺陷删除
+        # 删除不满足条件的broken
+        if defect['type'] == 4 and (defect['box_width'] < resize_broken_max_edge_size_pixels and defect['box_height'] <
+                                    resize_broken_max_edge_size_pixels):  # broken缺陷
+            cc_info.remove(defect)
+            continue
+        # 删除不满足条件的chipping
+        if defect['type'] == 5 and (defect['box_width'] < resize_chipping_max_edge_size_pixels and defect['box_height']
+                                    < resize_chipping_max_edge_size_pixels):  # chipping缺陷
+            cc_info.remove(defect)
+            continue
+
     if len(cc_info) > 0:
         cc_info = [cell for cell in cc_info if cell['merge_flag'] is False]
         ALL_LOG_OBJ.logger.info('Defect num after merge: %d' % len(cc_info))
@@ -259,7 +282,7 @@ def get_detection_result(input_image, image_info_dict, rotate_angle, inlier_pt_l
         prediction_defect_list = []
         for label_id in range(3, len(prediction_result_list)):
             prediction_defect_list.append(prediction_result_list[label_id])
-        defect_result_list_ = get_defect_result(input_image, crop_rect_list, prediction_defect_list, label_name_list)
+        defect_result_list_ = get_defect_result(input_image, resize_ratio, crop_rect_list, prediction_defect_list, label_name_list)
     except:
         ALL_LOG_OBJ.logger.info('!!!! Defect detection failed !!!!')
         traceback.print_exc()
@@ -357,26 +380,8 @@ def draw_all_defect(input_image, image_resize_ratio, image_location_class, defec
     # 绘制缺陷 #####
     ui_dilate = 1 / ui_resize
     color_list = [(128, 128, 0), (128, 0, 0), (0, 0, 128),  (0, 0, 255),  (255, 0, 0)]
-
-    resize_chipping_max_edge_size_pixels = int((CHIPPINT_MAX_EDGE_SIZE / CAMERA_RESOLUTION) * image_resize_ratio)
-    resize_broken_max_edge_size_pixels = int((BROKEN_MAX_EDGE_SIZE / CAMERA_RESOLUTION) * image_resize_ratio)
     if len(defect_result_list) != 0:
         for cc in defect_result_list:
-            read_defect_rect = input_image[cc['box_top']:cc['box_bottom'], cc['box_left']:cc['box_right']]
-            defect_std_val = np.std(read_defect_rect, ddof=1)
-            if defect_std_val < 5:  # 如果缺陷区域标准差很小， 证明是误报
-                continue
-            # 2.1) 如果缺陷尺寸的最长边 没有超过阈值， 那么将该缺陷删除
-            # 删除不满足条件的broken
-            if cc['type'] == 4 and (cc['box_width'] < resize_broken_max_edge_size_pixels and cc['box_height'] < resize_broken_max_edge_size_pixels):  # broken缺陷
-                defect_result_list.remove(cc)
-                continue
-
-            # 删除不满足条件的chipping
-            if cc['type'] == 5 and (cc['box_width'] < resize_chipping_max_edge_size_pixels and cc['box_height'] < resize_chipping_max_edge_size_pixels):  # broken缺陷
-                defect_result_list.remove(cc)
-                continue
-
             rect_left, rect_top = int(cc['box_left'] * ui_resize), int(cc['box_top'] * ui_resize)
             rect_right, rect_bottom = int(cc['box_right'] * ui_resize), int(cc['box_bottom'] * ui_resize)
             cv2.rectangle(input_resize_bgr, (rect_left, rect_top), (rect_right, rect_bottom), color_list[cc['type']-1], 1)
@@ -443,7 +448,6 @@ def defect_detection(input_image, image_info_dict):
                        'image_type': image_type,            # str: 'big' or 'middle' or 'small'
                        'image_id': image_id}                # int: 0 or 1 or 2
     """
-
     product_type = image_info_dict['image_type']
     product_id = image_info_dict['image_id']
     resize_ratio = image_info_dict['resize_ratio']

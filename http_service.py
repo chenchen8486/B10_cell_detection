@@ -60,15 +60,17 @@ def save_detection_result(image_name,
     save_defect_file_name_path = save_file_name_path + "/" + "defect" + "/" + panelID
     save_whole_result_name_path = save_file_name_path + "/" + "all" + "/" + panelID
 
-    # 如果不存在指定存储文件的文件夹，那就创建
+    # 如果不存在指定存储文件的文件夹，那就创建（对于缺陷来说，必须有缺陷才能创建文件夹）
     if os.path.exists(save_corner_file_name_path) is not True:
         os.makedirs(save_corner_file_name_path)
     if os.path.exists(save_frontier_file_name_path) is not True:
         os.makedirs(save_frontier_file_name_path)
     if os.path.exists(save_mark_file_name_path) is not True:
         os.makedirs(save_mark_file_name_path)
-    if os.path.exists(save_defect_file_name_path) is not True:
+    if len(defect_rslt_list) != 0 and os.path.exists(save_defect_file_name_path) is not True:
         os.makedirs(save_defect_file_name_path)
+    # if os.path.exists(save_defect_file_name_path) is not True:
+    #     os.makedirs(save_defect_file_name_path)
     if os.path.exists(save_whole_result_name_path) is not True:
         os.makedirs(save_whole_result_name_path)
 
@@ -112,8 +114,6 @@ def save_detection_result(image_name,
 
     # 存储缺陷结果
     dilate_ratio = 1 / image_resize_ratio
-    resize_chipping_max_edge_size_pixels = int((CHIPPINT_MAX_EDGE_SIZE / CAMERA_RESOLUTION) * image_resize_ratio)
-    resize_broken_max_edge_size_pixels = int((BROKEN_MAX_EDGE_SIZE / CAMERA_RESOLUTION) * image_resize_ratio)
     if len(defect_rslt_list) != 0:
         for defect_id, defect in enumerate(defect_rslt_list[:]):
             # 1) 定义crop的具体坐标，
@@ -129,27 +129,6 @@ def save_detection_result(image_name,
             crop_bottom = defect['box_bottom'] + CROP_DEFECT_IMAGE_OFFSET
             if crop_bottom > cv_image.shape[0]:
                 crop_bottom = cv_image.shape[0]
-
-            # 2）将原始缺陷的外扩后矩形crop出来，然后转换成BGR
-            read_defect_rect = cv_image[defect['box_top']:defect['box_bottom'], defect['box_left']:defect['box_right']]
-            defect_std_val = np.std(read_defect_rect, ddof=1)
-            if defect_std_val < 5:  # 如果缺陷区域标准差很小， 证明是误报
-                defect_rslt_list.remove(defect)
-                continue
-
-            # 2.1) 如果缺陷尺寸的最长边 没有超过阈值， 那么将该缺陷删除
-            # 删除不满足条件的broken
-            if defect['type'] == 4 and (defect['box_width'] < resize_broken_max_edge_size_pixels and defect['box_height'] < resize_broken_max_edge_size_pixels):  # broken缺陷
-                defect_rslt_list.remove(defect)
-                continue
-
-            # 删除不满足条件的chipping
-            if defect['type'] == 5 and (defect['box_width'] < resize_chipping_max_edge_size_pixels and defect[
-                'box_height'] < resize_chipping_max_edge_size_pixels):  # broken缺陷
-                defect_rslt_list.remove(defect)
-                continue
-
-
 
             defect_crop = cv_image[crop_y:crop_bottom, crop_x:crop_right]
             defect_crop_bgr = cv2.cvtColor(defect_crop, cv2.COLOR_GRAY2BGR)
